@@ -22,6 +22,17 @@ class CardType(Enum):
     UNRESTRICTED = auto()
 
 
+def get_available_moves(hand:List[int], card_type:CardType, last_play):
+    if card_type == CardType.UNRESTRICTED:
+        all_moves = getAllMoves(hand)
+        moves = [(move, moveType) for moveType, oneTypeOfMoves in all_moves.items() for move
+                 in oneTypeOfMoves]
+    else:
+        all_moves = getMovesWithSameType(hand, card_type, last_play) + [()]
+        moves = [(move, card_type) for move in all_moves]
+
+    return moves
+
 def getMovesWithSameType(hand: List[int], cardType: CardType, lastPlay):
     moves = []
     # Bombs and Nuke are always available
@@ -301,4 +312,3 @@ if __name__ == '__main__':
     # a3 = [3, 4, 6, 7, 8, 9, 10, 11, 12]
     # print(getStrips(a3))
     # print(getPairStrips(a2))
-    print(getAvailableMoves(a2, CardType.UNRESTRICTED, []))

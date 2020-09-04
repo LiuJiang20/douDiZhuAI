@@ -5,7 +5,7 @@ from typing import Dict, Union, Optional
 
 from tianshou.policy import BasePolicy
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
-from utility import get_available_moves
+from utility import get_available_moves, CardType
 
 
 class AdaptedDQN(BasePolicy):
@@ -129,12 +129,15 @@ class AdaptedDQN(BasePolicy):
         obs = getattr(batch, input)
         # obs_ is the actual observation of the state
         obs_ = obs.obs if hasattr(obs, 'obs') else obs
-        last_play = batch.info['last_play']  # see collector.py line 124, 273, 285 for more detail
-        agent_hand = batch.info['agent_hand']
+        info = batch.info if hasattr(batch.info, 'last_play') else batch.obs.info
+        last_play = tuple(info['last_play'][0])  # see collector.py line 124, 273, 285 for more detail
+        agent_hand = list(info['agent_hand'][0])
         available_moves = get_available_moves(agent_hand, last_play[0], last_play[1])
-        available_moves = [available_moves + (self.evaluate_move(obs, available_move))
+        available_moves = [available_moves + (self.evaluate_move(obs_[0], available_move[1]))
                            for available_move in available_moves]
         available_moves.sort(key=lambda x: x[-1], reverse=True)
+        if len(available_moves) == 1:
+            return Batch(logits=available_moves[0][-1], act=[(last_play[0], ())], state=None)
         # add eps to act
         if eps is None:
             eps = self.eps
@@ -148,15 +151,18 @@ class AdaptedDQN(BasePolicy):
             selected_action = available_moves[0]
         q = selected_action[-1]
         act = selected_action[1]
+        assert not isinstance(act,float)
         h = None
-        return Batch(logits=q, act=act, state=h)
+        return Batch(logits=q, act=[act], state=h)
 
     def evaluate_move(self, obs, move):
-        move_array = np.zeros(1, 15)
+        move_array = np.zeros(shape=(1, 15))
         for card in move:
-            move_array[card - 3] += 1
-        neural_net_input = np.concatenate((obs, move_array))
-        return self.model.forward(neural_net_input)
+            move_array[0][card - 3] += 1
+        neural_net_input = np.concatenate((obs, move_array)).reshape((1, 5, 15))
+        tensor_input = torch.tensor(neural_net_input).float().cuda()
+        output = [self.model.forward(tensor_input).item()]
+        return output
 
     def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
         if self._target and self._cnt % self._freq == 0:

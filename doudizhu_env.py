@@ -4,7 +4,7 @@ from functools import partial
 from typing import Tuple, Optional, List
 import random
 from tianshou.env import MultiAgentEnv
-from utility import inplaceRemoveFromHand, CardType
+from utility import inplaceRemoveFromHand, CardType, hand_to_nparray
 
 '''
 Representation(number->card):
@@ -40,7 +40,7 @@ class DouDiZhuEnv(MultiAgentEnv):
     def __init__(self):
         super().__init__()
         self.hands = None
-        self.current_agent = -1
+        self.current_agent = 0
         self.record = None
         self.last_agent = -1
         self.last_play_info = None
@@ -53,16 +53,18 @@ class DouDiZhuEnv(MultiAgentEnv):
         scored_hands.sort(key=lambda x: x[1])
         self.hands = [i[0] for i in scored_hands]
         self.hands[0] += landlord_cards
-        self.hands = [sorted[i] for i in self.hands]
+        self.hands = [sorted(i) for i in self.hands]
         self.current_agent = 0
         self.last_agent = -1
         self.last_play_info = (CardType.UNRESTRICTED, ())
         self.record = np.zeros(shape=([3, 15]))  # records card played by each player
         self.log = []  # record proceeding of the game
         return {
-            'agent_id': self.current_agent,
-            'obs': None,
-            'mask': None
+            'agent_id': self.current_agent + 1,
+            'obs': np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent]))),
+            'mask': None,
+            'info': {'last_play': self.last_play_info,
+                     'agent_hand': self.hands[self.current_agent]}
         }
 
     def step(self, action):
@@ -74,7 +76,7 @@ class DouDiZhuEnv(MultiAgentEnv):
 
         # Remove cards played by current agent
         cards = action[1]
-        inplaceRemoveFromHand(self.hands, action)
+        inplaceRemoveFromHand(self.hands[self.current_agent], cards)
         # update records
         for card in cards:
             self.record[self.current_agent][card - 3] += 1
@@ -101,8 +103,8 @@ class DouDiZhuEnv(MultiAgentEnv):
             vec_rew = [0, 0, 0]
 
         obs = {
-            'agent_id': self.current_agent,
-            'obs': self.record,
+            'agent_id': self.current_agent + 1,
+            'obs': np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent]))),
             'mask': None
         }
         return obs, vec_rew, np.array(done), {'last_play': self.last_play_info,

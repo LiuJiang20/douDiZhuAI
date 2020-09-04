@@ -22,16 +22,24 @@ class CardType(Enum):
     UNRESTRICTED = auto()
 
 
-def get_available_moves(hand:List[int], card_type:CardType, last_play):
+def hand_to_nparray(hand):
+    nparray = np.zeros((1, 15))
+    for card in hand:
+        nparray[0][card - 3] += 1
+    return nparray
+
+
+def get_available_moves(hand: List[int], card_type: CardType, last_play):
     if card_type == CardType.UNRESTRICTED:
         all_moves = getAllMoves(hand)
-        moves = [(move, moveType) for moveType, oneTypeOfMoves in all_moves.items() for move
+        moves = [(moveType, move) for moveType, oneTypeOfMoves in all_moves.items() for move
                  in oneTypeOfMoves]
     else:
         all_moves = getMovesWithSameType(hand, card_type, last_play) + [()]
-        moves = [(move, card_type) for move in all_moves]
+        moves = [(card_type,move) for move in all_moves]
 
     return moves
+
 
 def getMovesWithSameType(hand: List[int], cardType: CardType, lastPlay):
     moves = []
@@ -39,7 +47,7 @@ def getMovesWithSameType(hand: List[int], cardType: CardType, lastPlay):
     if cardType != CardType.QUADPLEX:
         moves += getQuadplexes(hand)
     else:
-        moves += getQuadplexes(hand,lastPlay)
+        moves += getQuadplexes(hand, lastPlay)
     moves += getNuke(hand)
     if cardType == CardType.SOLO:
         moves += getSolos(hand, lastPlay)
@@ -269,7 +277,7 @@ def getTrioSoloStrips(hand: List[int], lastPlay=None):
 def getTrioPairStrips(hand: List[int], lastPlay=None):
     trioPairStrips = []
     if lastPlay:
-        trioStrips = getTrioStrips(hand, lastPlay[:len(lastPlay)//5 * 3] )
+        trioStrips = getTrioStrips(hand, lastPlay[:len(lastPlay) // 5 * 3])
     else:
         trioStrips = getTrioStrips(hand)
     for trioStrip in trioStrips:
@@ -297,6 +305,7 @@ def removeFromHand(hand: List[int], cards):
     for i in cards:
         left.remove(i)
     return left
+
 
 def inplaceRemoveFromHand(hand: List[int], cards):
     for i in cards:

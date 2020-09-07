@@ -5,7 +5,7 @@ from typing import Dict, Union, Optional
 
 from tianshou.policy import BasePolicy
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
-from utility import get_available_moves, CardType
+from utility import get_available_moves, CardType, decode_hand
 
 
 class AdaptedDQN(BasePolicy):
@@ -128,16 +128,23 @@ class AdaptedDQN(BasePolicy):
         model = getattr(self, model)
         obs = getattr(batch, input)
         # obs_ is the actual observation of the state
-        obs_ = obs.obs if hasattr(obs, 'obs') else obs
-        info = batch.info if hasattr(batch.info, 'last_play') else batch.obs.info
-        last_play = tuple(info['last_play'][0])  # see collector.py line 124, 273, 285 for more detail
-        agent_hand = list(info['agent_hand'][0])
+        obss_ = obs.obs if hasattr(obs, 'obs') else obs
+        infos = obs.mask
+        q_acts = [self.process_single_obs(obss_[i], infos[i], eps) for i in range(len(obss_))]
+        qs = [item[0] for item in q_acts]
+        acts = [item[1] for item in q_acts]
+        h = None
+        return Batch(logits=qs, act=acts, state=h)
+
+    def process_single_obs(self, obs, info, eps=None):
+        last_play = tuple(info['last_play'])  # see collector.py line 124, 273, 285 for more detail
+        agent_hand = decode_hand(info['agent_hand'])
         available_moves = get_available_moves(agent_hand, last_play[0], last_play[1])
-        available_moves = [available_moves + (self.evaluate_move(obs_[0], available_move[1]))
+        available_moves = [available_move + (self.evaluate_move(obs, available_move[1]))
                            for available_move in available_moves]
         available_moves.sort(key=lambda x: x[-1], reverse=True)
         if len(available_moves) == 1:
-            return Batch(logits=available_moves[0][-1], act=[(last_play[0], ())], state=None)
+            return available_moves[0][-1], available_moves[0][:-1]
         # add eps to act
         if eps is None:
             eps = self.eps
@@ -150,10 +157,8 @@ class AdaptedDQN(BasePolicy):
         else:
             selected_action = available_moves[0]
         q = selected_action[-1]
-        act = selected_action[1]
-        assert not isinstance(act,float)
-        h = None
-        return Batch(logits=q, act=[act], state=h)
+        act = selected_action[:-1]
+        return q, act
 
     def evaluate_move(self, obs, move):
         move_array = np.zeros(shape=(1, 15))
@@ -161,7 +166,7 @@ class AdaptedDQN(BasePolicy):
             move_array[0][card - 3] += 1
         neural_net_input = np.concatenate((obs, move_array)).reshape((1, 5, 15))
         tensor_input = torch.tensor(neural_net_input).float().cuda()
-        output = [self.model.forward(tensor_input).item()]
+        output = (self.model.forward(tensor_input).item(),)
         return output
 
     def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
@@ -170,7 +175,8 @@ class AdaptedDQN(BasePolicy):
         self.optim.zero_grad()
         weight = batch.pop('weight', 1.)
         q = self(batch, eps=0.).logits
-        q = q[np.arange(len(q)), batch.act]
+        q = torch.tensor(q, requires_grad=True)
+        # q = q[np.arange(len(q)), batch.act]
         r = to_torch_as(batch.returns, q).flatten()
         td = r - q
         loss = (td.pow(2) * weight).mean()

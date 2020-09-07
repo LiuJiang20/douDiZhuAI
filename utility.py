@@ -2,6 +2,7 @@ from enum import auto, Enum
 from itertools import combinations
 from typing import List, Tuple
 import numpy as np
+import itertools
 
 
 class CardType(Enum):
@@ -22,6 +23,24 @@ class CardType(Enum):
     UNRESTRICTED = auto()
 
 
+def encode_hand(hand: List[int]):
+    # print('hand before encoding:',hand)
+    array_hand = np.zeros(15, dtype=np.intc)
+    for card in hand:
+        array_hand[card - 3] += 1
+    return array_hand
+
+
+def decode_hand(array_hand):
+    hand = []
+    for i in range(len(array_hand)):
+        if array_hand[i] != 0:
+            number = i + 3
+            hand += [number] * int(array_hand[i])
+    # print('hand after decoding:',hand)
+    return hand
+
+
 def hand_to_nparray(hand):
     nparray = np.zeros((1, 15))
     for card in hand:
@@ -36,7 +55,7 @@ def get_available_moves(hand: List[int], card_type: CardType, last_play):
                  in oneTypeOfMoves]
     else:
         all_moves = getMovesWithSameType(hand, card_type, last_play) + [()]
-        moves = [(card_type,move) for move in all_moves]
+        moves = [(card_type, move) for move in all_moves]
 
     return moves
 
@@ -44,7 +63,7 @@ def get_available_moves(hand: List[int], card_type: CardType, last_play):
 def getMovesWithSameType(hand: List[int], cardType: CardType, lastPlay):
     moves = []
     # Bombs and Nuke are always available
-    if cardType != CardType.QUADPLEX:
+    if cardType != CardType.QUADPLEX or cardType != CardType.NUKE:
         moves += getQuadplexes(hand)
     else:
         moves += getQuadplexes(hand, lastPlay)
@@ -227,7 +246,7 @@ def getPairStrips(hand: List[int], lastPlay=None):
         while j < n and pairs[j][0] == pairs[j - 1][0] + 1 and pairs[j][0] not in (15, 16, 17):
             strip += pairs[j]
             if (not lastPlay and j - i + 1 >= 3) or (
-                    lastPlay and strip[i] > lastPlay[0] and len(strip) == len(lastPlay)):
+                    lastPlay and strip[0] > lastPlay[0] and len(strip) == len(lastPlay)):
                 pairStrips.append(strip)
             j += 1
         i += 1
@@ -245,7 +264,7 @@ def getTrioStrips(hand: List[int], lastPlay=None):
         while j < n and trios[j][0] == trios[j - 1][0] + 1 and trios[j][0] not in (15, 16, 17):
             strip += trios[j]
             if (not lastPlay and j - i + 1 >= 2) or (
-                    lastPlay and strip[i] > lastPlay[i] and len(strip) == len(lastPlay)):
+                    lastPlay and strip[0] > lastPlay[i] and len(strip) == len(lastPlay)):
                 trioStrips.append(strip)
             j += 1
         i += 1
@@ -321,3 +340,7 @@ if __name__ == '__main__':
     # a3 = [3, 4, 6, 7, 8, 9, 10, 11, 12]
     # print(getStrips(a3))
     # print(getPairStrips(a2))
+    encoded = encode_hand(a2)
+    decoded = decode_hand(encoded)
+    if decoded == a2:
+        print("encoding works")

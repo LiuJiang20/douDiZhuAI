@@ -4,7 +4,7 @@ from functools import partial
 from typing import Tuple, Optional, List
 import random
 from tianshou.env import MultiAgentEnv
-from utility import inplaceRemoveFromHand, CardType, hand_to_nparray
+from utility import inplaceRemoveFromHand, CardType, hand_to_nparray, encode_hand
 
 '''
 Representation(number->card):
@@ -62,9 +62,8 @@ class DouDiZhuEnv(MultiAgentEnv):
         return {
             'agent_id': self.current_agent + 1,
             'obs': np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent]))),
-            'mask': None,
-            'info': {'last_play': self.last_play_info,
-                     'agent_hand': self.hands[self.current_agent]}
+            'mask': {'last_play': self.last_play_info,
+                     'agent_hand': encode_hand(self.hands[self.current_agent])}
         }
 
     def step(self, action):
@@ -73,7 +72,6 @@ class DouDiZhuEnv(MultiAgentEnv):
         :param action: a tuple of cards played by the current agent
         :return:
         '''
-
         # Remove cards played by current agent
         cards = action[1]
         inplaceRemoveFromHand(self.hands[self.current_agent], cards)
@@ -81,34 +79,39 @@ class DouDiZhuEnv(MultiAgentEnv):
         for card in cards:
             self.record[self.current_agent][card - 3] += 1
         # update log
-        self.log.append(action)
+        self.log.append((self.current_agent, action))
         if cards:
             self.last_agent = self.current_agent
             self.last_play_info = action
-
-        new_round = DouDiZhuEnv.distance(self.last_agent, self.current_agent) == 1
+        self.current_agent = (self.current_agent + 1) % 3
+        new_round = False if self.last_agent == -1 else self.current_agent == self.last_agent
+        winner = self.get_winner()
         if new_round:
             self.last_play_info = (CardType.UNRESTRICTED, ())
         # Change the playing agent to next one
-        self.current_agent = (self.current_agent + 1) % 3
-        winner = self.get_winner()
         if winner == 0:  # landlord wins
             done = 1
             vec_rew = [1, -1, -1]
-        elif winner > 0:  # peasant wins
+        elif winner > 0:
             done = 1
             vec_rew = [-1, 1, 1]
         else:  # no winners yet
             done = 0
             vec_rew = [0, 0, 0]
-
+        # print('*******************************')
+        # print(action)
+        # print(self.last_play_info)
+        # print(self.hands)
+        # print('*******************************')
+        # if done:
+        #     print('One match done')
         obs = {
             'agent_id': self.current_agent + 1,
             'obs': np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent]))),
-            'mask': None
+            'mask': {'last_play': self.last_play_info,
+                     'agent_hand': encode_hand(self.hands[self.current_agent])}
         }
-        return obs, vec_rew, np.array(done), {'last_play': self.last_play_info,
-                                              'agent_hand': self.hands[self.current_agent]}
+        return obs, np.array(vec_rew), np.array(done), {}
 
     # Distance from b to a
     @staticmethod
@@ -135,10 +138,16 @@ class DouDiZhuEnv(MultiAgentEnv):
         return -1
 
     def seed(self, seed: Optional[int] = None) -> int:
-        pass
+        np.random.seed(seed)
 
     def render(self, **kwargs) -> None:
-        pass
+        print(self.log[-1])
 
     def close(self) -> None:
         pass
+
+
+if __name__ == '__main__':
+    env = DouDiZhuEnv()
+    env.step((CardType.UNRESTRICTED, ()))
+    print('done')

@@ -216,40 +216,65 @@ class DouDiZhuEnv(MultiAgentEnv):
 
 
 class DetailEnv(DouDiZhuEnv):
+    row_len = 71
+
     def __init__(self, result_collector: ResultCollector = None):
         self.round = -1
         # one line |player|card type| {0,1,2,3} * 13 + 1 + 1|
         #          |3     |14       | 54                    |
-        self.row_len = 71
-        self.np_log = np.zeros((54 * 3, self.row_len))
+        self.np_log = np.zeros((54 * 3, DetailEnv.row_len))
         super().__init__(result_collector)
 
     def reset(self):
         to_return = super().reset()
-        self.round = -1
-        self.np_log = np.zeros((54 * 3, self.row_len))
+        self.round = 0
+        self.np_log = np.zeros((54 * 3, DetailEnv.row_len))
         return to_return
 
     def step(self, action):
         to_return = super().step(action)
-        self.np_log[self.round] = self.to_np_log_row(self.log[-1])
-        self.round -= 1
+        self.np_log[self.round] = self.encode_row(self.log[-1])
+        self.round += 1
         return to_return
 
     # def get_obs(self):
     #     return self.np_log
 
-    def to_np_log_row(self, row):
+    @staticmethod
+    def encode_row(row):
         agent, action = row
         card_type = action[0]
         cards = action[1]
-        np_row = np.zeros(self.row_len)
+        np_row = np.zeros(DetailEnv.row_len)
         np_row[agent] = 1
         np_row[3 + card_type] = 1
         counter = Counter(cards)
         for card, num in counter.items():
-            np_row[17 + card * 4 + num - 1] = 1
+            if card not in (16, 17):
+                np_row[17 + (card - 3) * 4 + num - 1] = 1
+            else:
+                pos = -1 if card == 17 else -2
+                np_row[pos] = 1
         return np_row
+
+    @staticmethod
+    def encode_hand(hand):
+        np_row = np.zeros(DetailEnv.row_len)
+        counter = Counter(hand)
+        for card, num in counter.items():
+            if card not in (16, 17):
+                for i in range(0, num):
+                    np_row[17 + (card - 3) * 4 + i] = 1
+            else:
+                pos = -1 if card == 17 else -2
+                np_row[pos] = 1
+        return np_row
+
+    @staticmethod
+    def encode_action(action):
+        row = DetailEnv.encode_row((0, action))
+        row[0] = 0
+        return row
 
 
 if __name__ == '__main__':

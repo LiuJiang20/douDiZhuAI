@@ -1,10 +1,10 @@
-from models.neural_nets import SimpleCov, get_optim, SimpleFull
+from neural_nets import get_optim, SimpleFull
 import os
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from adpted_dqn_simple_full import AdaptedDQN
-from tianshou.env import SubprocVectorEnv, DummyVectorEnv, ShmemVectorEnv
+from tianshou.env import SubprocVectorEnv, DummyVectorEnv
 from tianshou.trainer import offpolicy_trainer
 from tianshou.data import Collector, ReplayBuffer
 from doudizhu_env import DouDiZhuEnv, ResultCollector

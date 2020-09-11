@@ -1,26 +1,26 @@
-from enum import auto, Enum
+from enum import auto, Enum, IntEnum
 from itertools import combinations
 from typing import List, Tuple
 import numpy as np
 import itertools
 
 
-class CardType(Enum):
-    SOLO = auto()
-    PAIR = auto()
-    TRIO = auto()
-    TRIO_SOLO = auto()
-    TRIO_PAIR = auto()
-    QUADPLEX = auto()
-    QUADPLEX_SOLOS = auto()
-    QUADPLEX_PAIRS = auto()
-    STRIP = auto()
-    PAIR_STRIP = auto()
-    TRIO_STRIP = auto()
-    TRIO_SOLO_STRIP = auto()
-    TRIO_PAIR_STRIP = auto()
-    NUKE = auto()
-    UNRESTRICTED = auto()
+class CardType(IntEnum):
+    NUKE = 0
+    SOLO = 1
+    PAIR = 2
+    TRIO = 3
+    TRIO_SOLO = 4
+    TRIO_PAIR = 5
+    QUADPLEX = 6
+    QUADPLEX_SOLOS = 7
+    QUADPLEX_PAIRS = 8
+    STRIP = 9
+    PAIR_STRIP = 10
+    TRIO_STRIP = 11
+    TRIO_SOLO_STRIP = 12
+    TRIO_PAIR_STRIP = 13
+    UNRESTRICTED = 14
 
 
 def encode_hand(hand: List[int]):

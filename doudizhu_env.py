@@ -7,6 +7,7 @@ from tianshou.env import MultiAgentEnv
 from utility import inplaceRemoveFromHand, CardType, hand_to_nparray, encode_hand
 from threading import Lock
 from collections import Counter
+from doudizhuc.scripts.agents import make_agent
 
 '''
 Representation(number->card):
@@ -32,6 +33,7 @@ Representation(number->card):
 cardMap = {3: "3", 4: "4", 5: "5", 6: "6", 7: "7", 8: "8", 9: "9", 10: "10", 11: "J", 12: "Q",
            13: "K", 14: "A", 15: "2", 16: "B", 17: "R"}
 fullDeck = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] * 4 + [16, 17]
+fullDeck.sort()
 
 
 class ResultCollector:
@@ -61,9 +63,10 @@ class DouDiZhuEnv(MultiAgentEnv):
         self.last_agent = -1
         self.last_play_info = None
         self.log: List = []
-        self.reset()
         self.winner = -1
         self.result_collector = result_collector
+        self.cards_remain = fullDeck.copy()
+        self.reset()
 
     def reset(self) -> dict:
         self.hands, landlord_cards = self.distribute_cards()
@@ -75,15 +78,11 @@ class DouDiZhuEnv(MultiAgentEnv):
         self.current_agent = 0
         self.last_agent = -1
         self.last_play_info = (CardType.UNRESTRICTED, ())
+        self.cards_remain = fullDeck.copy()
         self.record = np.zeros(shape=([3, 15]))  # records card played by each player
         self.log = []  # record proceeding of the game (self.current_agent,action)
         self.winner = -1
-        return {
-            'agent_id': self.current_agent + 1,
-            'obs': self.get_obs(),
-            'mask': {'last_play': self.last_play_info,
-                     'agent_hand': encode_hand(self.hands[self.current_agent])}
-        }
+        return self.get_obs()
 
     def step(self, action):
         '''
@@ -94,6 +93,8 @@ class DouDiZhuEnv(MultiAgentEnv):
         # Remove cards played by current agent
         cards = action[1]
         inplaceRemoveFromHand(self.hands[self.current_agent], cards)
+        # update cards remain i.e remove cards played from remain_cards
+        inplaceRemoveFromHand(self.cards_remain, cards)
         # update records
         for card in cards:
             self.record[self.current_agent][card - 3] += 1
@@ -126,19 +127,20 @@ class DouDiZhuEnv(MultiAgentEnv):
         # print('*******************************')
         # if done:
         #     print('One match done')
-        obs = {
+        obs = self.get_obs()
+        return obs, np.array(vec_rew), np.array(done), {}
+
+    def get_obs(self):
+        return {
             'agent_id': self.current_agent + 1,
-            'obs': self.get_obs(),
+            'obs': np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent]))),
             'action': None,
             'mask': {'last_play': self.last_play_info,
                      'agent_hand': encode_hand(self.hands[self.current_agent])}
         }
-        return obs, np.array(vec_rew), np.array(done), {}
 
-    def get_obs(self):
-        return np.concatenate((self.record, hand_to_nparray(self.hands[self.current_agent])))
+        # Distance from b to a
 
-    # Distance from b to a
     @staticmethod
     def distance(a, b):
         dis = 0
@@ -206,7 +208,7 @@ class DouDiZhuEnv(MultiAgentEnv):
         # print(line7)
         print(line8)
         last_log = self.log[-1]
-        player_map = {0: "landlord", 1: "upper", 2: "lower"}
+        player_map = {0: "landlord", 1: "lower", 2: "upper"}
         print("Last player: ", player_map[last_log[0]])
         last_play_str = ",".join(map(lambda x: cardMap[x], last_log[1][1]))
         print("Cards played", last_play_str if len(last_play_str) > 0 else "pass")
@@ -232,13 +234,27 @@ class DetailEnv(DouDiZhuEnv):
         return to_return
 
     def step(self, action):
+        self.np_log[self.round] = self.encode_row((self.current_agent, action))
         to_return = super().step(action)
-        self.np_log[self.round] = self.encode_row(self.log[-1])
         self.round += 1
         return to_return
 
-    # def get_obs(self):
-    #     return self.np_log
+    def get_obs(self):
+        last = self.log[-1][1][1] if len(self.log) > 0 else []
+        last = encode_hand(last)
+        second_last = self.log[-2][1][1] if len(self.log) > 1 else []
+        second_last = encode_hand(second_last)
+        obs = {'agent_id': self.current_agent + 1,
+               'obs': np.concatenate((self.np_log, DetailEnv.encode_hand(self.hands[self.current_agent]))),
+               'mask': {'last_play': self.last_play_info,
+                        'agent_hand': encode_hand(self.hands[self.current_agent]),
+                        'last_two_play': np.vstack((last, second_last)),
+                        'cards_remain': encode_hand(self.cards_remain),
+                        'next_count': len(self.hands[(self.current_agent + 1) % 3]),
+                        'next_next_count': len(self.hands[(self.current_agent + 2) % 3])
+                        }
+               }
+        return obs
 
     @staticmethod
     def encode_row(row):
@@ -268,16 +284,44 @@ class DetailEnv(DouDiZhuEnv):
             else:
                 pos = -1 if card == 17 else -2
                 np_row[pos] = 1
-        return np_row
+        return np_row.reshape((1, -1))
 
     @staticmethod
     def encode_action(action):
         row = DetailEnv.encode_row((0, action))
         row[0] = 0
-        return row
+        return row.reshape((1, -1))
+
+
+class LandlordEnv(gym.Env):
+    def __init__(self, upper_policy, lower_policy):
+        self.env = DetailEnv()
+        self.upper_policy = upper_policy
+        self.lower_policy = lower_policy
+
+    def reset(self):
+        return self.env.reset()
+
+    def step(self, action):
+        if action.ndim > 1:
+            action = action[0]
+        obs, reward, done, info = self.env.step(action)
+        if not done:
+            # game is not over after landlord played
+            action = self.lower_policy.process_single_obs(obs['obs'], obs['mask'])[1]
+            obs, reward, done, info = self.env.step(action)
+        if not done:
+            action = self.upper_policy.process_single_obs(obs['obs'], obs['mask'])[1]
+            obs, reward, done, info = self.env.step(action)
+
+        reward = reward[0]
+        return obs, reward, done, info
 
 
 if __name__ == '__main__':
-    env = DouDiZhuEnv()
-    env.step((CardType.UNRESTRICTED, ()))
-    print('done')
+    # env = DouDiZhuEnv()
+    # env.step((CardType.UNRESTRICTED, ()))
+    # print('done')
+    env = DetailEnv()
+    result = env.encode_row((1, (CardType.SOLO, ())))
+    print('Done')

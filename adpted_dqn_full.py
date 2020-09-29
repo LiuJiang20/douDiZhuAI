@@ -3,9 +3,11 @@ import numpy as np
 from copy import deepcopy
 from typing import Dict, Union, Optional
 
+import time
 from tianshou.policy import BasePolicy
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
 from utility import get_available_moves, CardType, decode_hand
+from doudizhu_env import DetailEnv
 
 
 class AdaptedDQN(BasePolicy):
@@ -43,7 +45,7 @@ class AdaptedDQN(BasePolicy):
         super().__init__(**kwargs)
         self.model = model
         self.optim = optim
-        self.eps = 0.5  # epsilon for epsilon-greedy exploration
+        self.eps = 0.1  # epsilon for epsilon-greedy exploration
         assert 0 <= discount_factor <= 1, 'discount_factor should in [0, 1]'
         self._gamma = discount_factor
         self._target = target_update_freq > 0
@@ -134,14 +136,20 @@ class AdaptedDQN(BasePolicy):
         qs = [item[0] for item in q_acts]
         acts = [item[1] for item in q_acts]
         h = None
-        return Batch(logits=qs, act=acts, state=h)
+        return Batch(logits=qs, act=acts, state=h, policy=qs)
 
     def process_single_obs(self, obs, info, eps=None):
         last_play = tuple(info['last_play'])  # see collector.py line 124, 273, 285 for more detail
         agent_hand = decode_hand(info['agent_hand'])
         available_moves = get_available_moves(agent_hand, last_play[0], last_play[1])
-        available_moves = [available_move + (self.evaluate_move(obs, available_move[1]))
-                           for available_move in available_moves]
+        # TODO do all calcs first
+        all_obs = torch.tensor(
+            np.vstack([self.gen_obs(obs, available_move) for available_move in available_moves])).float().cuda()
+        # start = time.time()
+        all_q = self.model(all_obs)
+        # end = time.time()
+        # print('time per forward: ', (end - start) * 1000)
+        available_moves = [available_moves[i] + (all_q[i],) for i in range(len(available_moves))]
         available_moves.sort(key=lambda x: x[-1], reverse=True)
         if len(available_moves) == 1:
             return available_moves[0][-1], available_moves[0][:-1]
@@ -151,23 +159,19 @@ class AdaptedDQN(BasePolicy):
         if not np.isclose(eps, 0):
             roll = np.random.random()
             if roll > eps:
-                selected_action = available_moves[0]
+                choose = 0
             else:
-                selected_action = available_moves[np.random.randint(1, len(available_moves))]
+                choose = np.random.randint(1, len(available_moves))
         else:
-            selected_action = available_moves[0]
-        q = selected_action[-1]
-        act = selected_action[:-1]
+            choose = 0
+        q = all_q[choose]
+        act = available_moves[choose][:-1]
         return q, act
 
-    def evaluate_move(self, obs, move):
-        move_array = np.zeros(shape=(1, 15))
-        for card in move:
-            move_array[0][card - 3] += 1
-        neural_net_input = np.concatenate((obs, move_array)).reshape((1, -1))
-        tensor_input = torch.tensor(neural_net_input).float().cuda()
-        output = (self.model.forward(tensor_input).item(),)
-        return output
+    def gen_obs(self, obs, move):
+        last_row = DetailEnv.encode_action(move)
+        one_obs = np.concatenate((obs, last_row)).reshape((1, -1))
+        return one_obs
 
     def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
         if self._target and self._cnt % self._freq == 0:
@@ -175,7 +179,7 @@ class AdaptedDQN(BasePolicy):
         self.optim.zero_grad()
         weight = batch.pop('weight', 1.)
         q = self(batch, eps=0.).logits
-        q = torch.tensor(q, requires_grad=True)
+        # q = torch.tensor(q, requires_grad=True)
         # q = q[np.arange(len(q)), batch.act]
         r = to_torch_as(batch.returns, q).flatten()
         td = r - q
@@ -185,3 +189,8 @@ class AdaptedDQN(BasePolicy):
         self.optim.step()
         self._cnt += 1
         return {'loss': loss.item()}
+
+
+class FixedPolicy(AdaptedDQN):
+    def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
+        return {}

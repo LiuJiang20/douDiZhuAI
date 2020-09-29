@@ -3,35 +3,38 @@ import numpy as np
 from copy import deepcopy
 from typing import Dict, Union, Optional
 
+import time
 from tianshou.policy import BasePolicy
 from tianshou.data import Batch, ReplayBuffer, to_torch_as, to_numpy
 from utility import get_available_moves, CardType, decode_hand
+from doudizhu_env import DetailEnv
+import torch.nn.functional as F
 
 
-class AdaptedRandomPolicy(BasePolicy):
+class MyImitationPolicy(BasePolicy):
     """Implementation of Deep Q Network. arXiv:1312.5602
 
-    Implementation of Double Q-Learning. arXiv:1509.06461
+       Implementation of Double Q-Learning. arXiv:1509.06461
 
-    Implementation of Dueling DQN. arXiv:1511.06581 (the dueling DQN is
-    implemented in the network side, not here)
+       Implementation of Dueling DQN. arXiv:1511.06581 (the dueling DQN is
+       implemented in the network side, not here)
 
-    :param torch.nn.Module model: a model following the rules in
-        :class:`~tianshou.policy.BasePolicy`. (s -> logits)
-    :param torch.optim.Optimizer optim: a torch.optim for optimizing the model.
-    :param float discount_factor: in [0, 1].
-    :param int estimation_step: greater than 1, the number of steps to look
-        ahead.
-    :param int target_update_freq: the target network update frequency (``0``
-        if you do not use the target network).
-    :param bool reward_normalization: normalize the reward to Normal(0, 1),
-        defaults to ``False``.
+       :param torch.nn.Module model: a model following the rules in
+           :class:`~tianshou.policy.BasePolicy`. (s -> logits)
+       :param torch.optim.Optimizer optim: a torch.optim for optimizing the model.
+       :param float discount_factor: in [0, 1].
+       :param int estimation_step: greater than 1, the number of steps to look
+           ahead.
+       :param int target_update_freq: the target network update frequency (``0``
+           if you do not use the target network).
+       :param bool reward_normalization: normalize the reward to Normal(0, 1),
+           defaults to ``False``.
 
-    .. seealso::
+       .. seealso::
 
-        Please refer to :class:`~tianshou.policy.BasePolicy` for more detailed
-        explanation.
-    """
+           Please refer to :class:`~tianshou.policy.BasePolicy` for more detailed
+           explanation.
+       """
 
     def __init__(self,
                  model: torch.nn.Module,
@@ -43,7 +46,7 @@ class AdaptedRandomPolicy(BasePolicy):
         super().__init__(**kwargs)
         self.model = model
         self.optim = optim
-        self.eps = 0.1  # epsilon for epsilon-greedy exploration
+        self.eps = 0  # epsilon for epsilon-greedy exploration
         assert 0 <= discount_factor <= 1, 'discount_factor should in [0, 1]'
         self._gamma = discount_factor
         self._target = target_update_freq > 0
@@ -96,6 +99,7 @@ class AdaptedRandomPolicy(BasePolicy):
                 model: str = 'model',
                 input: str = 'obs',
                 eps: Optional[float] = None,
+                is_learning=False,
                 **kwargs) -> Batch:
         """Compute action over the given batch data. If you need to mask the
         action, please add a "mask" into batch.obs, for example, if we have an
@@ -130,45 +134,73 @@ class AdaptedRandomPolicy(BasePolicy):
         # obs_ is the actual observation of the state
         obss_ = obs.obs if hasattr(obs, 'obs') else obs
         infos = obs.mask
-        q_acts = [self.process_single_obs(obss_[i], infos[i], eps) for i in range(len(obss_))]
-        qs = [item[0] for item in q_acts]
-        acts = [item[1] for item in q_acts]
+        batch_size = len(obss_)
+        if is_learning:
+            all_obs_ = [a for i in range(batch_size) for a in self.process_single_obs(batch[i], eps)]
+            input = torch.tensor(np.vstack(all_obs_)).float().cuda()
+            qs = self.model(input)
+            acts = np.zeros((len(qs),))
+        else:
+            qs, acts = zip(*[self.obs_to_act(obss_[i], infos[i], eps) for i in range(batch_size)])
         h = None
         return Batch(logits=qs, act=acts, state=h)
 
-    def process_single_obs(self, obs, info, eps=None):
+    def process_single_obs(self, one_batch, eps=None):
+        available_moves = one_batch['act']
+        obs = getattr(one_batch, 'obs')
+        obs = obs.obs if hasattr(obs, 'obs') else obs
+        # TODO do all calcs first
+        # all_obs = torch.tensor(
+        #     np.vstack([self.gen_obs(obs, available_move) for available_move in available_moves])).float().cuda()
+        # all_q = self.model(all_obs)
+        # print('time per forward: ', (end - start) * 1000)
+        return [self.gen_obs(obs, available_move) for available_move in available_moves]
+
+    def obs_to_act(self, obs, info, eps=None):
         last_play = tuple(info['last_play'])  # see collector.py line 124, 273, 285 for more detail
         agent_hand = decode_hand(info['agent_hand'])
         available_moves = get_available_moves(agent_hand, last_play[0], last_play[1])
-        available_moves = [available_move + (1,)
-                           for available_move in available_moves]
+        # TODO do all calcs first
+        all_obs = torch.tensor(
+            np.vstack([self.gen_obs(obs, available_move) for available_move in available_moves])).float().cuda()
+        # start = time.time()
+        all_q = self.model(all_obs)
+        # end = time.time()
+        # print('time per forward: ', (end - start) * 1000)
+        available_moves = [available_moves[i] + (all_q[i],) for i in range(len(available_moves))]
         available_moves.sort(key=lambda x: x[-1], reverse=True)
-        selected_action = available_moves[np.random.randint(0, len(available_moves))]
-        q = selected_action[-1]
-        act = selected_action[:-1]
+        if len(available_moves) == 1:
+            return available_moves[0][-1], available_moves[0][:-1]
+        # add eps to act
+        if eps is None:
+            eps = self.eps
+        if not np.isclose(eps, 0):
+            roll = np.random.random()
+            if roll > eps:
+                choose = 0
+            else:
+                choose = np.random.randint(1, len(available_moves))
+        else:
+            choose = 0
+        q = all_q[choose]
+        act = available_moves[choose][:-1]
         return q, act
 
-    def evaluate_move(self, obs, move):
-        move_array = np.zeros(shape=(1, 15))
-        for card in move:
-            move_array[0][card - 3] += 1
-        neural_net_input = np.concatenate((obs, move_array)).reshape((1, 5, 15))
-        tensor_input = torch.tensor(neural_net_input).float().cuda()
-        output = (self.model.forward(tensor_input).item(),)
-        return output
+    def gen_obs(self, obs, move):
+        last_row = DetailEnv.encode_action(move)
+        one_obs = np.concatenate((obs, last_row)).reshape((1, -1))
+        return one_obs
 
     def learn(self, batch: Batch, **kwargs) -> Dict[str, float]:
         if self._target and self._cnt % self._freq == 0:
             self.sync_weight()
         self.optim.zero_grad()
         weight = batch.pop('weight', 1.)
-        q = self(batch, eps=0.).logits
-        q = torch.tensor(q, requires_grad=True)
+        q = self(batch, eps=0., is_learning=True).logits
+        # q = torch.tensor(q, requires_grad=True)
         # q = q[np.arange(len(q)), batch.act]
-        r = to_torch_as(batch.returns, q).flatten()
-        td = r - q
-        loss = (td.pow(2) * weight).mean()
-        batch.weight = td  # prio-buffer
+        r = to_torch_as(batch.policy.reshape((-1,1)), q)
+        loss = F.mse_loss(r, q)
         loss.backward()
         self.optim.step()
         self._cnt += 1

@@ -24,7 +24,6 @@ class CardType(IntEnum):
 
 
 def encode_hand(hand: List[int]):
-    # print('hand before encoding:',hand)
     array_hand = np.zeros(15, dtype=np.intc)
     for card in hand:
         array_hand[card - 3] += 1
@@ -199,7 +198,9 @@ def getQuadplexSolos(hand: List[int], lastPlay=None):
     else:
         quadplexes = getQuadplexes(hand)
     for quadplex in quadplexes:
-        for solos in set(combinations([i for i in getSolos(removeFromHand(hand, list(quadplex)))], 2)):
+        unique_solos = [i for i in set(getSolos(removeFromHand(hand, list(quadplex))))]
+        unique_solos.sort()
+        for solos in set(combinations(unique_solos, 2)):
             quadplexSolos.append(quadplex + solos[0] + solos[1])
     return quadplexSolos
 
@@ -211,7 +212,7 @@ def getQuadplexPairs(hand: List[int], lastPlay=None):
     else:
         quadplexes = getQuadplexes(hand)
     for quadplex in quadplexes:
-        for pairs in set(combinations([i for i in getAllPairs(removeFromHand(hand, list(quadplex)))], 2)):
+        for pairs in set(combinations([i for i in getPairs(removeFromHand(hand, list(quadplex)))], 2)):
             if pairs[0] == pairs[1]:
                 continue
             quadplexPairs.append(quadplex + pairs[0] + pairs[1])
@@ -282,7 +283,9 @@ def getTrioSoloStrips(hand: List[int], lastPlay=None):
         cardsLeft = removeFromHand(hand, list(trioStrip))
         if len(cardsLeft) < trioNum:
             continue
-        for solos in set(combinations(getSolos(cardsLeft), trioNum)):
+        unique_solos = list(set(getSolos(cardsLeft)))
+        unique_solos.sort()
+        for solos in set(combinations(unique_solos, trioNum)):
             trioSolos = trioStrip
             cards = set(trioStrip)
             if cards.intersection(set([i[0] for i in solos])):
@@ -301,7 +304,7 @@ def getTrioPairStrips(hand: List[int], lastPlay=None):
         trioStrips = getTrioStrips(hand)
     for trioStrip in trioStrips:
         trioNum = len(trioStrip) // 3
-        allPairs = getAllPairs(removeFromHand(hand, list(trioStrip)))
+        allPairs = getPairs(removeFromHand(hand, list(trioStrip)))
         if len(allPairs) < trioNum:
             continue
         for pairs in set(combinations(allPairs, trioNum)):
@@ -340,7 +343,9 @@ if __name__ == '__main__':
     # a3 = [3, 4, 6, 7, 8, 9, 10, 11, 12]
     # print(getStrips(a3))
     # print(getPairStrips(a2))
-    encoded = encode_hand(a2)
-    decoded = decode_hand(encoded)
-    if decoded == a2:
-        print("encoding works")
+    # encoded = encode_hand(a2)
+    # decoded = decode_hand(encoded)
+    # if decoded == a2:
+    #     print("encoding works")
+    a3 = [13, 13, 14, 14, 15, 15]
+    print(getPairStrips(a3))

@@ -277,6 +277,8 @@ class TestAllCardSelectionMethod(TestCase):
         self.assertEqual(set(getStrips(h8)), {(4, 5, 6, 7, 8), (10, 11, 12, 13, 14)})
         h9 = [4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]
         self.assertEqual(set(getStrips(h9)), {(4, 5, 6, 7, 8), (10, 11, 12, 13, 14)})
+        h10 = [11, 12, 13, 14, 15]
+        self.assertEqual(getStrips(h10), [])
 
     def testGetNuke(self):
         h1 = []
@@ -395,12 +397,12 @@ class TestAllCardSelectionMethod(TestCase):
         self.assertEqual(getTrioPairStrips(h5), [])
         h6 = [3, 3, 3, 4, 4, 4, 5, 5, 6]
         self.assertEqual(getTrioPairStrips(h6), [])
-        h65 = [3,3,3,4,4,4,5,5,5,5]
-        self.assertEqual(getTrioPairStrips(h65),[(3,3,3,4,4,4,5,5,5,5)])
-        h66 = [3,3,4,4,14,14,15,15,15]
-        self.assertEqual(getTrioPairStrips(h66),[])
-        h67 = [3,3,3,4,4,4,5,5,15,15]
-        self.assertEqual(getTrioPairStrips(h67),[(3,3,3,4,4,4,5,5,15,15)])
+        h65 = [3, 3, 3, 4, 4, 4, 5, 5, 5, 5]
+        self.assertEqual(getTrioPairStrips(h65), [(3, 3, 3, 4, 4, 4, 5, 5, 5, 5)])
+        h66 = [3, 3, 4, 4, 14, 14, 15, 15, 15]
+        self.assertEqual(getTrioPairStrips(h66), [])
+        h67 = [3, 3, 3, 4, 4, 4, 5, 5, 15, 15]
+        self.assertEqual(getTrioPairStrips(h67), [(3, 3, 3, 4, 4, 4, 5, 5, 15, 15)])
         h7 = [3, 3, 3, 4, 4, 4, 5, 5, 6, 6]
         self.assertEqual(getTrioPairStrips(h7), [(3, 3, 3, 4, 4, 4, 5, 5, 6, 6)])
         h8 = [3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6]
@@ -431,6 +433,11 @@ class TestAllCardSelectionMethod(TestCase):
                              (8, 8, 8, 9, 9, 9, 7, 7, 11, 11), (8, 8, 8, 9, 9, 9, 7, 7, 12, 12),
                              (8, 8, 8, 9, 9, 9, 7, 7, 13, 13), (8, 8, 8, 9, 9, 9, 11, 11, 12, 12),
                              (8, 8, 8, 9, 9, 9, 11, 11, 13, 13), (8, 8, 8, 9, 9, 9, 12, 12, 13, 13)})
+
+    def test_all_moves(self):
+        h1 = [11, 12, 13, 14]
+        moves = get_available_moves(h1,CardType.UNRESTRICTED,[])
+        print(moves)
 
 
 if __name__ == '__main__':
